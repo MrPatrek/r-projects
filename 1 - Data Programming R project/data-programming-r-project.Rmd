@@ -32,7 +32,6 @@ First of all, let's load needed libraries, after which we would load the data as
 
 ```{r message=FALSE, warning=FALSE}
 library(tidyverse)
-library(ggplot2)
 library(gt)
 library(gtExtras) # themes for gt
 
