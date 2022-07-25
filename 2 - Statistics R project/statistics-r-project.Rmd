@@ -1,0 +1,715 @@
+---
+title: "Statistics - R Project"
+author: "Oleksandr Babenko"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+The intention of this project is to derive some interesting knowledge from a dataset consisting of a white and red wine features. That is, I will apply statistical tools as well as other tools (e.g. graphical, tabular, etc.) in order to find some knowledge that may seem interesting from statistical point of view.
+
+# Presentation of the data
+
+First of all, load most common libraries:
+
+```{r message=FALSE}
+library(tidyverse) # we will use tidyverse quite often here...
+```
+
+```{r}
+
+white <- readr::read_delim("winequality-white.csv", 
+                    delim = ";", escape_double = FALSE, trim_ws = TRUE, show_col_types = FALSE)
+
+red <- readr::read_delim("winequality-red.csv", 
+                  delim = ";", escape_double = FALSE, trim_ws = TRUE, show_col_types = FALSE)
+
+red %>% head() %>% knitr::kable(caption = "Red wine features (first 5 rows)")
+
+white %>% head() %>% knitr::kable(caption = "White wine features (first 5 rows)")
+
+```
+
+We can see that in both tables, all the columns are numerical. That is, we will deal completely with numbers.
+
+# Statistical analysis & visualisation of the data
+
+## Mean and median values for both white and red wine features. Comparison of features between white and red wine
+
+We could have used `summary()` function on all the features for each wine type, but then the table wouldn't have been nice-looking. For this reason, I decided to create the table manually. What I did is I created a merged table for white and red wines and calculated mean and median values for them.
+
+```{r}
+
+wine <- bind_rows(
+  white %>% mutate(type = "white") %>% relocate(type), 
+  red %>% mutate(type = "red") %>% relocate(type)
+  )
+
+wine_mean <- wine %>% 
+  group_by(type) %>% 
+  summarise(across(everything(), mean)) %>% mutate(across(-type, round, digits = 2))
+
+wine_median <- wine %>% 
+  group_by(type) %>% 
+  summarise(across(everything(), median)) %>% mutate(across(-type, round, digits = 2))
+
+wine_summary <- bind_rows(
+  wine_mean %>% mutate(func = "mean") %>% relocate(func, .after = type), 
+  wine_median %>% mutate(func = "median") %>% relocate(func, .after = type)
+) %>% 
+  arrange(desc(type))
+
+
+```
+
+```{r}
+
+wine_summary %>% knitr::kable(caption = "Mean and median values for both white and red types of wine")
+
+wine_summary_longer <- wine_summary %>% 
+  pivot_longer(-c(type, func), names_to = "feature", values_to = "value")
+
+```
+
+I don't like the table since it's very large, and thus complex (imagine what would have happened if I used `summary()`). So, let's present the same table in a form of a bar chart (for now I will use mean only):
+
+```{r}
+
+wine_summary_longer %>% 
+  filter(func == "mean" & feature %in% c(
+    "total sulfur dioxide", "free sulfur dioxide"
+    )) %>%
+  ggplot(aes(x = feature, y = value, fill = type)) +
+  geom_bar(stat = "identity", position = "dodge") + 
+  geom_text(aes(label = value), fontface = "bold", vjust = 1.5,
+            position = position_dodge(.9), size = 4) +
+  labs(x = "Feature", y = "Value", fill = "Type of wine", title = "Mean values for wine features, part 1") +
+  theme(
+    plot.title = element_text(hjust = 0.5), 
+    axis.title.x = element_text(face="bold", size = 12),
+    axis.title.y = element_text(face="bold", size = 12),
+    legend.title = element_text(face="bold", size = 10)
+    )
+
+
+
+
+
+wine_summary_longer %>% 
+  filter(func == "mean" & feature %in% c(
+    "alcohol", "fixed acidity", "residual sugar", "quality", "pH"
+    )) %>%
+  ggplot(aes(x = feature, y = value, fill = type)) +
+  geom_bar(stat = "identity", position = "dodge") + 
+  geom_text(aes(label = value), fontface = "bold", vjust = 1.5,
+            position = position_dodge(.9), size = 4) +
+  labs(x = "Feature", y = "Value", fill = "Type of wine", title = "Mean values for wine features, part 2") +
+  theme(
+    plot.title = element_text(hjust = 0.5), 
+    axis.title.x = element_text(face="bold", size = 12),
+    axis.title.y = element_text(face="bold", size = 12),
+    legend.title = element_text(face="bold", size = 10)
+    )
+
+
+
+
+
+
+wine_summary_longer %>% 
+  filter(func == "mean" & feature %in% c(
+    "density", "sulphates", "volatile acidity", "citric acid", "chlorides"
+    )) %>%
+  ggplot(aes(x = feature, y = value, fill = type)) +
+  geom_bar(stat = "identity", position = "dodge") + 
+  geom_text(aes(label = value), fontface = "bold", vjust = 1.5,
+            position = position_dodge(.9), size = 4) +
+  labs(x = "Feature", y = "Value", fill = "Type of wine", title = "Mean values for wine features, part 3") +
+  theme(
+    plot.title = element_text(hjust = 0.5), 
+    axis.title.x = element_text(face="bold", size = 12),
+    axis.title.y = element_text(face="bold", size = 12),
+    legend.title = element_text(face="bold", size = 10)
+    )
+
+```
+
+### Observation
+
+Let's point out the **features that are quite different in white and red wines** (we can assume these features actually make white and red wines differ):
+
+-   **free sulfur dioxide** (\> 2 times)
+
+-   **total sulfur dioxide** (\~ 3 times)
+
+-   fixed acidity (\> 1 times)
+
+-   **residual sugar** (\~ 2.5 times)
+
+-   chlorides (\< 2 times)
+
+-   citric acid (\> 1 times)
+
+-   sulphates (\> 1 times)
+
+-   volatile acidity (\< 2 times)
+
+## Correlation between wine QUALITY and other features
+
+Let's check the correlation between the wine quality and other wine features. We will use **Pearson test** since we just want to test linear relationships between two interval variables without any monotone checking.
+
+Firstly, we will check the correlation for the white wine:
+
+```{r}
+
+white_features <- colnames(white)
+white_features <- white_features[! white_features %in% c("quality")] # remove quality from other features vector
+
+features_cor_col_names <- c("feature", "cor")
+white_features_cor <- data.frame(matrix(nrow = 0, ncol = length(features_cor_col_names)))
+colnames(white_features_cor) <- features_cor_col_names
+
+for (feature in white_features) {
+  cor_result <- cor(white$quality, white[[feature]], method = "pearson")
+  white_features_cor[nrow(white_features_cor) + 1, ] <- list(feature, cor_result)
+}
+
+white_features_cor %>% 
+  arrange(cor) %>% 
+  knitr::kable(caption = "Correlation between white wine QUALITY and each other feature")
+
+
+```
+
+In the above table, we can see that there are indeed some correlations between the **white wine quality** and some other features. These features are:
+
+-   **density** (moderate negative correlation)
+
+-   **alcohol** (moderate positive correlation)
+
+Now, let's do the same, but now with the red whine:
+
+```{r}
+
+red_features <- colnames(red)
+red_features <- red_features[! red_features %in% c("quality")] # remove quality from other features vector
+
+features_cor_col_names <- c("feature", "cor")
+red_features_cor <- data.frame(matrix(nrow = 0, ncol = length(features_cor_col_names)))
+colnames(red_features_cor) <- features_cor_col_names
+
+for (feature in red_features) {
+  cor_result <- cor(red$quality, red[[feature]], method = "pearson")
+  red_features_cor[nrow(red_features_cor) + 1, ] <- list(feature, cor_result)
+}
+
+red_features_cor %>% 
+  arrange(cor) %>% 
+  knitr::kable(caption = "Correlation between red wine QUALITY and each other feature")
+
+
+```
+
+In the new table, we can see that there are some correlations between **red wine quality** and other features as well. These are:
+
+-   **volatile acidity** (moderate negative correlation) (new one, was not present in white wines)
+
+-   **alcohol** (moderate positive correlation) (was present in white wines as well)
+
+What is interesting is that in the red wines, there is no that big correlation between the red wine quality and its **density**, which was the case in **white wines**. So, for both white and red wine, there are some common features that correlate with wine quality, and at the same time, not all of them are the same in both white and red wines.
+
+
+
+
+
+
+
+
+
+
+
+
+## Distribution of wines with regard to some features
+
+### Quality
+
+#### White wine
+
+```{r}
+
+
+
+ggplot(white, aes(x = quality)) +
+  geom_histogram(fill = "#FBB143", binwidth = 0.5) +
+  ggtitle("White wine: Quality distribution")
+
+```
+
+For **white wine**, the most popular **qualities** are **5, 6 and 7** (when 3 is min and 9 is max). The shape of distribution is **slightly asymmetric to the right**.
+
+#### Red wine
+
+```{r}
+
+ggplot(red, aes(x = quality)) +
+  geom_histogram(fill = "#F041AF", binwidth = 0.5) +
+  ggtitle("Red wine: Quality distribution")
+
+```
+
+For the **red wine**, the most popular **qualities** are **5 and 6** (when 3 is min and 8 is max). Quality **7** is somewhere between popular and unpopular. The shape of distribution is **slightly asymmetric to the left**.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Fixed acidity
+
+#### White wine
+
+```{r}
+
+
+
+ggplot(white, aes(x = `fixed acidity`)) +
+  geom_histogram(fill = "#FBB143", binwidth = 0.25) +
+  ggtitle("White wine: Fixed acidity distribution")
+
+```
+
+#### Red wine
+
+```{r}
+
+
+
+ggplot(red, aes(x = `fixed acidity`)) +
+  geom_histogram(fill = "#F041AF", binwidth = 0.25) +
+  ggtitle("Red wine: Fixed acidity distribution")
+
+```
+
+
+So, for the **white wine**, the most frequent fixed **acidity values** range **from (approx.) 6 to 9**. The shape of distribution is **symmetric**. 
+
+For the **red wine**, they range **from 6 to 10**. The shape of distribution is **asymmetric to the right**.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Volatile acidity
+
+#### White wine
+
+```{r}
+
+
+
+ggplot(white, aes(x = `volatile acidity`)) +
+  geom_histogram(fill = "#FBB143", binwidth = 0.125 / 2) +
+  ggtitle("White wine: Volatile acidity distribution")
+
+```
+
+#### Red wine
+
+```{r}
+
+
+
+ggplot(red, aes(x = `volatile acidity`)) +
+  geom_histogram(fill = "#F041AF", binwidth = 0.125 / 2) +
+  ggtitle("Red wine: Volatile acidity distribution")
+
+```
+
+
+For the **white wine**, the **volatile acidity** values range from **0.15 to 0.45** (again, approximately (this also applies to all consequent observations)). The shape of distribution is **slightly asymmetric to the right**.
+
+For the **red wine**, they range from **0.2 to 0.8**. The shape of distribution is **asymmetric to the right**.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Citric acid
+
+#### White wine
+
+```{r}
+
+
+
+ggplot(white, aes(x = `citric acid`)) +
+  geom_histogram(fill = "#FBB143", binwidth = 0.125 / 2) +
+  ggtitle("White wine: Citric acid distribution")
+
+```
+
+#### Red wine
+
+```{r}
+
+
+
+ggplot(red, aes(x = `citric acid`)) +
+  geom_histogram(fill = "#F041AF", binwidth = 0.125 / 2) +
+  ggtitle("Red wine: Citric acid distribution")
+
+```
+
+
+For the **white wine**, the **citric acid** values range **from 0.25 to 0.5**. The shape of distribution is **slightly asymmetric to the right**.
+
+For the **red wine**, they range **from 0 to 0.5**. The shape of distribution is **asymmetric to the right**.
+
+
+
+
+
+
+
+
+
+
+### Residual sugar
+
+#### White wine
+
+```{r}
+
+
+
+ggplot(white, aes(x = `residual sugar`)) +
+  geom_histogram(fill = "#FBB143", binwidth = 1) +
+  ggtitle("White wine: Residual sugar distribution")
+
+```
+
+#### Red wine
+
+```{r}
+
+
+
+ggplot(red, aes(x = `residual sugar`)) +
+  geom_histogram(fill = "#F041AF", binwidth = 1) +
+  ggtitle("Red wine: Residual sugar distribution")
+
+```
+
+
+For the **white wine**, the **residual sugar** values range from **1 to 16** . The shape of distribution is **asymmetric to the right**.
+
+For the **red wine**, they range from **2 to 3**. The shape of distribution is **asymmetric to the right**.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### pH
+
+#### White wine
+
+```{r}
+
+
+
+ggplot(white, aes(x = pH)) +
+  geom_histogram(fill = "#FBB143", binwidth = 0.125) +
+  ggtitle("White wine: pH distribution")
+
+```
+
+#### Red wine
+
+```{r}
+
+
+
+ggplot(red, aes(x = pH)) +
+  geom_histogram(fill = "#F041AF", binwidth = 0.125) +
+  ggtitle("Red wine: pH distribution")
+
+```
+
+
+For the **white wine**, the **pH** values range from **3 to 3.4** . The shape of distribution is **symmetric**.
+
+For the **red wine**, they range from **3.1 to 3.5**. The shape of distribution is **symmetric**.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+### Alcohol
+
+#### White wine
+
+```{r}
+
+
+
+ggplot(white, aes(x = alcohol)) +
+  geom_histogram(fill = "#FBB143", binwidth = 0.125) +
+  ggtitle("White wine: Alcohol distribution")
+
+```
+
+#### Red wine
+
+```{r}
+
+
+
+ggplot(red, aes(x = alcohol)) +
+  geom_histogram(fill = "#F041AF", binwidth = 0.125) +
+  ggtitle("Red wine: Alcohol distribution")
+
+```
+
+
+For the **white wine**, the **alcohol** values range from **9 to 13**. The shape of distribution is **asymmetric to the right**.
+
+For the **red wine**, they range from **9.5 to 12.5**. The shape of distribution is **asymmetric to the right**.
+
+
+
+### Observation
+
+The majority of distributions are **asymmetric to the right**. There also were some symmetric distributions as well as asymmetric to the left.
+
+
+
+
+
+
+
+
+## Normality checking
+
+In this section, we will graphically check if some distribution is normal or not.
+
+Let's test four distributions: two that looks like they are normal (pH distribution (*3.3.6 pH*)), and another two that do not look like normal (residual sugar distribution (*3.3.5 Residual sugar*)), so we will check our expectations here.
+
+
+### Normality of pH distribution
+
+
+
+```{r}
+
+qqnorm(red$pH)
+qqline(red$pH)
+
+```
+
+```{r}
+
+qqnorm(white$pH)
+qqline(white$pH)
+
+```
+
+Looking at the graphs above, we can see that both distributions look like normal (very small value deviations from the line).
+
+So, **pH distribution in both wine types** is indeed a **normal distribution**.
+
+
+### Normality of residual sugar distribution
+
+
+```{r}
+
+qqnorm(white$`residual sugar`)
+qqline(white$`residual sugar`)
+
+```
+
+```{r}
+
+qqnorm(red$`residual sugar`)
+qqline(red$`residual sugar`)
+
+```
+
+Looking at the graphs above, we can see that both distributions do NOT look like normal (big value deviations from the line).
+
+So, **residual sugar distribution in both wine types** is indeed **NOT a normal distribution**.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+## Testing hypotheses
+
+
+
+### Check if two features from red and white wines are the same
+
+Let's take a look at the mean graphs from the *Section 3.1*. We can notice that e.g. **alcohol** mean is almost the same in both red and white wines. So, we can assume that the alcohol is the same in both wine types. But, this is just a mean value, it's not enough, so it's still better to check if they are indeed the same with some statistical test. At the same time, we can see that e.g. **total sulfur dioxide** is not the same in red and white wines, so we will test it as well (for showing that it differs in both wine types).
+
+For this reason, we will use **Student's t-test** (two-sided). For both tests, we will use the same hypotheses:
+
+- Null hypothesis: means are equal
+
+- Alternative hypothesis: means differ
+
+
+
+
+
+#### Alcohol
+
+```{r}
+
+
+t.test(
+  red$alcohol, white$alcohol,
+  alternative = "two.sided",
+  mu = 0, # difference in means (we want to test if alcohol in r. and w. wines differ, so diff = 0)
+  paired = FALSE, # sample are independent, so FALSE
+  conf.level = 0.95 # alpha = 0.05 (most common alpha)
+  )
+
+
+
+```
+
+
+We can see that p-value is far away from 0, but still lower than our alpha (which is 0.05), so we reject null hypothesis and accept alternative one, that is, **alcohol differs for red and white wines**. To be honest, I expected it to be equal (I mean, even the p-value is not really that much close to 0), but we cannot argue with the statistical test.
+
+Now, let's do the same for total sulfur dioxide.
+
+
+
+#### Total sulfur dioxide
+
+```{r}
+
+
+t.test(
+  red$`total sulfur dioxide`, white$`total sulfur dioxide`,
+  alternative = "two.sided",
+  mu = 0, # difference in means (we want to test if alcohol in r. and w. wines differ, so diff = 0)
+  paired = FALSE, # sample are independent, so FALSE
+  conf.level = 0.95 # alpha = 0.05 (most common alpha)
+  )
+
+
+
+```
+
+Again, as before, p-value is not just less than alpha, but is very close to 0. So, we reject null hypothesis, and thus accept the alternative one, that is, **total sulfur dioxide differs for red and white wines**. And this was expectable from the beginning.
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Conclusion
+
+I have checked all the properties that interested me the most. Here is a short summary of them:
+
+- Features that **differ the most** in red and white wines are **free sulfur dioxide**, **total sulfur dioxide** and **residual sugar** (difference of more than 2 times)
+
+- Regarding the correlation of wine quality with other features, we have seen that the **alcohol** is **correlated** with the **wine quality** in **both wine types**. However, density is correlated in white wine only while volatile acidity is correlated in red wine only.
+
+- The majority of **feature distributions** in both wine types are **asymmetric to the right**.
+
+- **pH** is distributed **normally** in both wine types as expected from a distribution graph, while the **residual sugar** is **not normally** distributed in any of wine types (again, as expected).
+
+- I tested if **alcohol in both wine types** differs. I expected it to be the same, but even though, when looking at their means, it seems so, with the help of a statistical test we saw that it **actually differs**. We also performed the same test on total sulfur dioxide where we were sure it won't be the same, and it indeed wasn't.
+
+I have indeed gained some interesting knowledge from the analysis of this data, so I am satisfied with the results.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

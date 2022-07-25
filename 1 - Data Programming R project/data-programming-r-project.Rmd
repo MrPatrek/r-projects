@@ -1,0 +1,395 @@
+---
+title: "Data Programming - R Project"
+author: "Oleksandr Babenko"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    number_sections: true
+bibliography: references.bib
+link-citations: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+The goal of this project is to analyze the dataset [see @kaggle_dataset_src] I found online on Kaggle. The dataset is called *Restaurant Order Details*. I decided to choose this dataset for analysis because I like to eat tasty food as well as order it, so I thought that gaining some interesting knowledge from this area would be fun for me.
+
+# Presentation and description of the problem
+
+The dataset contains information about the orders were made in restaurants from some food delivery app. It contains 500 orders that were made on some day. Unfortunately, the description of the dataset does not contain any information on the location (at least the country) of where these orders have been collected.
+
+In particular, it's not just a single table, but two of them: one for orders and another one for restaurants. Orders just contain each order information (e.g. amount, time, rating, ...) while restaurants contain information about particular restaurant (e.g. cuisine, category, ...).
+
+By the way, the dataset contains fictional names of the customers as well as restaurants, so no personal info was revealed here.
+
+# Presentation of the data
+
+First of all, let's load needed libraries, after which we would load the data as well as clean it a bit (fix columns names so that we have nice time manipulating the data).
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(gt)
+library(gtExtras) # themes for gt
+
+orders <- readxl::read_excel("Orders.xlsx")
+restaurants <- readxl::read_excel("Restaurants.xlsx")
+
+# Fix columns names (Lowercase them, remove spaces, ...)
+orders <- janitor::clean_names(orders)
+restaurants <- janitor::clean_names(restaurants)
+```
+
+\
+
+Let's take a look at some of the first rows for both of these datasets:
+
+```{r}
+orders %>% head() %>% gt() %>% cols_align(align = "center", columns = everything()) %>% gt_theme_espn()
+```
+
+\
+
+```{r}
+restaurants %>% head() %>% gt() %>% cols_align(align = "center", columns = everything()) %>% gt_theme_espn()
+```
+
+\
+
+We can see that the orders table contains information like customer's name, payment choice, order amount, ratings of both food and delivery. At the same time, restaurants table contains info about restaurant's name, cuisine that they offer, zone and the category (probably the price level of the restaurant, the description did not specify what this stands for).
+
+
+
+# Exploratory data analysis & visualisation of the data
+
+For the analysis, I have decided to simply find interesting correlations in data as well as answer some the interesting questions that were proposed in the Kaggle description of this dataset. Basically, I just want to find some interesting stuff here.
+
+To make the data analysis easier, I decided to join both of these tables in order to make the analysis process easier to perform.
+
+```{r}
+df <- full_join(orders, restaurants) # the ID field for restaurants is the same in both tables, so no need to specify the joining keys
+```
+
+Now, let's begin with the data analysis.
+
+## Category proportion for each of the cuisines proposed
+
+### Category overview
+
+```{r}
+
+df %>% 
+  group_by(category) %>% 
+  summarise(count = n()) %>% 
+  arrange(desc(count)) %>% 
+  mutate(perc_dec = count / sum(count), perc = scales::percent(perc_dec)) %>% 
+  gt() %>% 
+  cols_align(align = "center", columns = everything()) %>% 
+  gt_theme_espn()
+
+```
+
+\
+
+We can see that the majority of orders is of Ordinary category (almost twice more than Pro), which is expectable for an average region. Let's go further.
+
+### Cuisine overview
+
+```{r}
+
+cuisine <- df %>% 
+  group_by(cuisine) %>% 
+  summarise(count = n()) %>% 
+  arrange(desc(count)) %>% 
+  mutate(perc_dec = count / sum(count), perc = scales::percent(perc_dec, accuracy = 0.1))
+
+ggplot(cuisine) +
+  aes(x = reorder(cuisine, -perc_dec), weight = perc_dec) +
+  geom_bar(fill = "#14CE9E") +
+  labs(x = "Cuisine", y = "Percentage") +
+  theme_minimal() + 
+  scale_y_continuous(labels = scales::percent_format())
+
+```
+
+\
+
+We see that there is no strong domination of any of the cuisines. However, the cuisines which occur the most are the ones on the Asian continent, like Chinese and Indian (both North and South).
+
+Since we don't even know where these orders were collected, from this bar chart we can assume that it was somewhere in the Asian continent.
+
+```{r}
+rm(cuisine)
+```
+
+
+
+### Cuisine and category correlation
+
+```{r}
+
+df %>%
+  group_by(cuisine, category) %>% 
+  summarise(count = n(), .groups = "drop_last") %>% 
+  arrange(desc(count)) %>% 
+  mutate(perc_dec = count / sum(count), perc = scales::percent(perc_dec, accuracy = 0.1)) %>% 
+  select(-c(count, perc_dec)) %>% 
+  pivot_wider(names_from = cuisine, values_from = perc, values_fill = "-") %>% 
+  gt() %>% 
+  cols_align(align = "center", columns = everything()) %>% 
+  gt_theme_espn()
+
+```
+
+\
+
+Now, we got some interesting information! We can see that the majority of Indian (both North and South), Chinese, Arabian  cuisines are of *Ordinary* category. At the same time, we see that Continental, French (Basically European ones) cuisines take the *Pro* category in the majority of the cases.
+
+Due to this, now I assume even more that the **orders were collected somewhere in the Asian continent**.
+
+
+## Category proportion for each of the zones
+
+```{r}
+
+df %>% 
+  group_by(zone, category) %>% 
+  summarise(count = n(), .groups = "drop_last") %>% 
+  arrange(desc(count)) %>% 
+  mutate(perc_dec = count / sum(count), perc = scales::percent(perc_dec, accuracy = 0.1)) %>% 
+  select(zone, category, perc) %>% 
+  pivot_wider(names_from = zone, values_from = perc) %>% 
+  select(category, order(colnames(.))) %>% 
+  gt() %>% 
+  cols_align(align = "center", columns = everything()) %>% 
+  gt_theme_espn()
+
+```
+
+\
+
+The motivation for finding the correlation between category and zone was the following: I wanted to figure out if some of the zones is very "disproportional" in terms of the category. Saying that, I wanted to find, e.g. zone that makes orders only from "Pro" category of restaurants. If this was the case, then this zone would be probably filled with very wealthy people.
+
+But what we see is that the zones and categories are more or less proportional. Usually there are twice more Ordinary orders than Pro in each zone, so there is no very huge gap between Ordinary and Pro in any of the zones. If at least one zone had had very huge gap, e.g. if Pro category had occurred 10 times more than Ordinary in zone C, then we would have thought of such a zone as probably of some very elite zone. But, as we can see, this is not the case. So, zones are more or less proportional in terms of category of the orders.
+
+## Average order amount for each cuisine
+
+```{r}
+
+df %>% 
+  select(cuisine, order_amount) %>% 
+  group_by(cuisine) %>% 
+  summarise(avg_order_amount = mean(order_amount)) %>% 
+  arrange(desc(avg_order_amount)) %>% 
+  mutate(avg_order_amount = round(avg_order_amount, 2)) %>% 
+  gt() %>% 
+  cols_align(align = "center", columns = everything()) %>% 
+  gt_theme_espn()
+
+```
+\
+
+I wanted to find out if for some of the cuisines, the average order amount would have been much more greater than in other cuisines Unfortunately, we don't even know the currency of the amount (dataset description does not contain such information).
+
+As we can see, there is no cuisine that would have had very huge gap with others. I mean, we can see that Indian and Chinese cuisines habe the lowest prices, which is expectable, but the difference with other cuisines is very small, so I would't treat it as a huge gap. But still, it is some knowledge.
+
+
+## Delivery time impact on delivery rating
+
+```{r}
+
+df %>% 
+  select(customer_rating_delivery, delivery_time_taken_mins) %>% 
+  group_by(customer_rating_delivery) %>% 
+  summarise(avg_delivery_time = mean(delivery_time_taken_mins)) %>% 
+  gt() %>% 
+  cols_align(align = "center", columns = everything()) %>% 
+  gt_theme_espn()
+
+```
+
+\
+
+Here I wanted to test my hypothesis: if the rating for the delivery was very low, then it's probably due to long delivery time, and vice-versa: if the rating was very high, then due to low delivery time.
+
+As we can see from the table, my hypothesis is indeed true: the higher the rating is, the lower the delivery time was. However, I cannot say that the results are satisfactory since the difference in time between rating is **quite small**. Just pick the highest and the lowest rating: they have 29.7 and 31.5 minutes delivery. The difference is less than 2 minutes, which is, to be honest, very small.
+
+But even with this, it still holds that **the lower the time was, the higher the rating was received**, and this rule is not violated in this table.
+
+
+
+## Order time impact on order amount
+
+```{r}
+
+time_and_amount <- df %>% 
+  select(order_date, order_amount) %>% 
+  mutate(order_hour = lubridate::hour(order_date)) %>%
+  select(-order_date) %>% 
+  group_by(order_hour) %>% 
+  summarise(avg_order_amount = mean(order_amount)) %>% 
+  mutate(order_hour = as.character(order_hour))
+
+ggplot(time_and_amount) +
+  aes(x = order_hour, weight = avg_order_amount) +
+  geom_bar(fill = "#EAB607") +
+  labs(x = "Order hour", y = "Average order amount") +
+  theme_minimal()
+
+```
+
+\
+
+To be honest, I expected here to see the average order amount to be much higher in the evening. But my assumption was wrong. I mean, we can see that the highest average amount is indeed at a time slot from 21:00 to 21:59, which is indeed evening, but the difference is, again, not that much big.
+
+```{r}
+rm(time_and_amount)
+```
+
+
+Let's see some other graph, a bit different, but still regarding the order time...
+
+
+
+
+## Order time impact on the number of orders
+
+```{r}
+
+time_and_number <- df %>% 
+  select(order_date, order_amount) %>% 
+  mutate(order_hour = lubridate::hour(order_date)) %>%
+  select(-order_date) %>% 
+  group_by(order_hour) %>% 
+  summarise(number_of_orders = n()) %>% 
+  mutate(order_hour = as.character(order_hour))
+
+ggplot(time_and_number) +
+  aes(x = order_hour, weight = number_of_orders) +
+  geom_bar(fill = "#AACE18") +
+  labs(x = "Order hour", y = "Number of orders") +
+  theme_minimal()
+
+```
+
+\
+
+Finally, we have quite interesting result! We can see that **the highest number of orders is done in the time slot from 14:00 to 14:59**. I think this may be due to the reason that **many people are at work at this time** and they would **order some meal for their lunch**, which seems quite logical to me. The only thing I did not expect was to see that in the evening the number of orders is relatively low. Saying that, I am a bit surprised that we do not have another peak of orders in the evening. I thought that people usually order much more in the evening. Maybe this is due to region specifics.
+
+
+```{r}
+rm(time_and_number)
+```
+
+
+
+
+
+## Food rating for each of cuisines
+
+```{r}
+
+df %>% 
+  select(cuisine, customer_rating_food) %>% 
+  group_by(cuisine) %>% 
+  summarise(avg_rating = round(mean(customer_rating_food), digits = 2)) %>% 
+  arrange(desc(avg_rating)) %>% 
+  gt() %>% 
+  cols_align(align = "center", columns = everything()) %>% 
+  gt_theme_espn()
+
+```
+
+\
+
+I do not notice here any major differences in cuisine average ratings, so I would not comment anything here.
+
+## Food rating for each category
+
+```{r}
+
+df %>% 
+  select(category, customer_rating_food) %>% 
+  group_by(category) %>% 
+  summarise(avg_rating = round(mean(customer_rating_food), digits = 2)) %>% 
+  arrange(desc(avg_rating)) %>% 
+  gt() %>% 
+  cols_align(align = "center", columns = everything()) %>% 
+  gt_theme_espn()
+
+```
+
+\
+
+Well, this is interesting. **Each category has approximately the same food rating**. So we cannot state that the Pro food receives much more of rating than Ordinary one.
+
+## Average food rating for each restaurant
+
+```{r}
+
+restaurants_food_rating <- df %>% 
+  select(restaurant_id, customer_rating_food) %>% 
+  group_by(restaurant_id) %>% 
+  summarise(avg_food_rating = mean(customer_rating_food)) %>% 
+  arrange(desc(avg_food_rating))
+
+left_join(restaurants_food_rating, restaurants) %>% 
+  select(restaurant_name, avg_food_rating, cuisine, category) %>% 
+  gt() %>% 
+  cols_align(align = "center", columns = everything()) %>% 
+  gt_theme_espn()
+
+```
+
+\
+
+Looking at the results above, we can see that **the highest positions are taken by North Indian cuisines**. This is in line with what we've seen before - the North Indian cuisine had the best average rating.
+
+
+```{r}
+rm(restaurants_food_rating)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Conclusion
+
+Some of the results were interesting, some were not. What I found the most interesting is that:
+
+* Orders were most probably collected somewhere in the Asian continent
+
+* The lower the time for delivery was, the higher the rating for it was received
+
+* The highest number of orders is done in the time slot from 14:00 to 14:59. This is probably because many people are at work at this time and they would rather simply order food than, for example, cook it during the work.
+
+* Each category has approximately the same food rating. So, we cannot say that the category (Ordinary or Pro restaurant) affects the customer rating
+
+* The highest positions in food rating are taken by North Indian cuisines. This only adds more probability to my hypothesis that the location of collected orders is somewhere in the Asian continent.
+
+# References
+
+<div id="refs"></div>
+
+
+
+
+
+
+
+
+
+
